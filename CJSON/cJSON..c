@@ -652,5 +652,197 @@ fail:
 
 }
 
+//Render the cstring provided to an secaped version that can be printed
+static cJSON_bool print_string_ptr(const unsigned char* const input,printbuffer*const output_buffer){
+    const unsigned char* input_pointer=NULL;
+    unsigned char* output=NULL;
+    unsigned char* output_pointer=NULL;
+    size_t output_length=0;
+
+    //numbers of additional characters needed for escaping
+    //即需要避免的额外的词汇
+    size_t escape_characters=0;
+
+    if(output_buffer==NULL){
+        return  false;
+    }
+
+    //empty string
+    if(input==NULL){
+        output=ensure(output_buffer,sizeof("\"\""));
+        if(output==NULL){
+            return false;
+        }
+        strcpy((char*)output,"\"\"");
+        return true;
+    }
+    
+    for(input_pointer=input;*input_pointer;*input_pointer++){
+        switch (*input_pointer)
+        {
+        case '\"':
+        case '\\':
+        case '\b':
+        case '\f':
+        case '\n':
+        case '\r':
+        case '\t':
+            escape_characters++;
+            break;
+        
+        default:
+            //若ASCII值小于32，即无法找到对应的字符类型组成字符串
+            if(*input_pointer<32){
+                //utf16 escape sequence uXXXX
+                escape_characters+=5;
+            }
+            break;
+        }
+    }
+    //以上确定输出长度
+    output_length=(size_t)(input_pointer-input)+escape_characters;
+
+    output=ensure(output_buffer,output_length+sizeof("\"\""));
+    if(output==NULL){
+        return false;
+    }
+
+    //没有字符需要被跳过
+    if(escape_characters==0){
+        output[0]='\"';
+        memcpy(output+1,input,output_length);
+        output[output_length+1]='\"';
+        output[output_length+2]='\0';
+        return true;
+    }
+
+    output[0]='\"';
+    output_pointer=output+1;
+
+    for(input_pointer=input;*input_pointer!='\0';(void)input_pointer++,output_pointer++){
+        if((*input_pointer>31)&&(*input_pointer!='\"')&&(*input_pointer!='\\')){
+            *output_pointer=*input_pointer;
+        }
+        else{
+            *output_pointer++ ='\\';
+            switch (*input_pointer)
+            {
+            case '\\':
+                *output_pointer='\\';
+                break;
+            case '\"':
+                *output_pointer='\"';
+                break;
+            case '\b':
+                *output_pointer='b';
+                break;
+            case '\f':
+                *output_pointer='f';
+                break;
+            case '\n':
+                *output_pointer='n';
+                break;
+            case '\r':
+                *output_pointer='r';
+                break;
+            case '\t':
+                *output_pointer='t';
+                break;
+            default:
+                sprintf((char*)output_pointer,"u%04x",*input_pointer);
+                output_pointer+=4;
+                break;
+            }
+        }
+    }
+
+    output[output_length+1]='\"';
+    output[output_length+2]='\0';
+    return true;
+}
+
+static cJSON_bool print_string(const cJSON*const item,printbuffer*const p){
+    return print_string_ptr((unsigned*)item->valuestring,p);
+}
+
+//Predeclare these prototypes
+static cJSON_bool parse_value(cJSON*const item,parse_buffer*const input_buffer);
+static cJSON_bool print_value(const cJSON *const item,printbuffer*const output_buffer);
+static cJSON_bool parse_array(cJSON*const item,parse_buffer *const input_buffer);
+static cJSON_bool print_array(const cJSON*const item,printbuffer*const output_buffer);
+static cJSON_bool parse_object(cJSON*const item,parse_buffer*const input_buffer);
+static cJSON_bool print_object(const cJSON*const item,printbuffer *const output_buffer);
+
+static parse_buffer *buffer_skip_whitespace(parse_buffer*const buffer){
+    if((buffer==NULL)||(buffer->content==NULL)){
+        return NULL;
+    }
+    //将offset指针移动至第一个字符的位置
+    while (can_access_at_index(buffer,0)&&(buffer_at_offset(buffer)[0]<=32))
+    {
+        buffer->offset++;
+    }
+
+    if(buffer->offset==buffer->length){
+        buffer->offset--;
+    }
+
+    return buffer;
+    
+}
+
+//skip the utf8 bom(byte order mark) if it is at the beginning of a buffer
+static parse_buffer *skip_utf8_bom(parse_buffer*const buffer){
+    if((buffer==NULL)||(buffer->content==NULL)||(buffer->offset!=0)){
+        return NULL;
+    }
+    //\xEF\xBF\xBB即bom文件的标记，用来指出这个文件是UTF8编码
+    if(can_access_at_index(buffer,4)&&(strncmp((const char *)buffer_at_offset(buffer),"\xEF\xBB\xBF",3)==0)){
+        buffer->offset+=3;
+    }
+
+    return buffer;
+}
+
+//Parse an object -create a new root ,and populate
+CJSON_PUBLIC(cJSON*) cJSON_ParseWithOpts(const char*value,const char**return_parse_end,cJSON_bool require_null_terminated){
+    parse_buffer buffer={0,0,0,0,{0,0,0}};
+    cJSON *item=NULL;
+
+    //reset error position
+    global_error.json=NULL;
+    global_error.position=0;
+
+    if(value==NULL){
+        goto fail;
+    }
+
+fail:
+    if(item!=NULL){
+        cJSON_Delete(item);
+    }
+    
+    if(value!=NULL){
+        error local_error;
+        local_error.json=(const unsigned char*)value;
+        local_error.position=0;
+
+        if(buffer.offset<buffer.length){
+            local_error.position=buffer.offset;
+        }
+        else if(buffer.length>0){
+            local_error.position=buffer.length-1;
+        }
+        if(return_parse_end!=NULL){
+            *return_parse_end=(const char *)local_error.json+local_error.position;
+        }
+        global_error=local_error;
+    }
+
+    return NULL;
+
+
+}
+
 
 

@@ -817,6 +817,37 @@ CJSON_PUBLIC(cJSON*) cJSON_ParseWithOpts(const char*value,const char**return_par
         goto fail;
     }
 
+    buffer.content=(const unsigned char*)value;
+    buffer.length=strlen((const char*)value)+sizeof("");
+    buffer.offset=0;
+    buffer.hooks=global_hooks;
+
+    item=cJSON_NEW_Item(&global_hooks);
+    if(item==NULL)
+    {
+        goto fail;
+    }
+
+    if(!parse_value(item,buffer_skip_whitespace(skip_utf8_bom(&buffer)))){
+        
+        goto fail;
+    }
+
+    //if we require null-terminated JSON without appended garbage ,skip and then check fo a null terminator
+    if(require_null_terminated){
+        buffer_skip_whitespace(&buffer);
+        if((buffer.offset>=buffer.length)||buffer_at_offset(&buffer)[0]!='\0'){
+            goto fail;
+        }
+    }
+
+    if(return_parse_end){
+        *return_parse_end=(const char*)buffer_at_offset(&buffer);
+    }
+
+    return item;
+
+
 fail:
     if(item!=NULL){
         cJSON_Delete(item);
@@ -842,6 +873,130 @@ fail:
     return NULL;
 
 
+}
+
+
+CJSON_PUBLIC(cJSON*)cJSON_Parse(const char *value){
+    return cJSON_ParseWithOpts(value,0,0);
+}
+
+#define cjson_min(a,b) ((a<b)?a:b)
+
+static unsigned char*print(const cJSON* const item,cJSON_bool format,const internal_hooks*const hooks){
+    static const size_t default_buffer_size=256;
+    printbuffer buffer[1];
+    unsigned char*printed=NULL;
+    //memset 将一段内存空间全部设置为某个字符
+    memset(buffer,0,sizeof(buffer));
+    
+    //create buffer
+    buffer->buffer=(unsigned char*)hooks->allocate(default_buffer_size);
+    buffer->length=default_buffer_size;
+    buffer->format=format;
+    buffer->hooks=*hooks;
+    if(buffer->buffer==NULL){
+        goto fail;
+    }
+
+    if(!print_value(item,buffer)){
+        goto fail;
+    }
+    update_offset(buffer);
+
+    if(hooks->realloccate!=NULL){
+        printed=(unsigned char*)hooks->realloccate(buffer->buffer,buffer->offset+1);
+        if(printed==NULL){
+            goto fail;
+        }
+        buffer->buffer=NULL;
+    }
+    else
+    {
+        printed=(unsigned char*)hooks->allocate(buffer->offset+1);
+        if(printed==NULL){
+            goto fail;
+        }
+        memcpy(printed,buffer->buffer,cjson_min(buffer->length,buffer->offset+1));
+        printed[buffer->offset]='\0';
+
+        hooks->deallcoate(buffer->buffer);
+    }
+
+    return printed;
+    
+
+fail:
+    if(buffer->buffer!=NULL){
+        hooks->deallcoate(buffer->buffer);
+    }
+
+    if(printed!=NULL){
+        hooks->deallcoate(printed);
+    }
+    return NULL;                                           
+}
+
+CJSON_PUBLIC(char*)cJSON_Print(const cJSON*item){
+    return (char *)print(item,true,&global_hooks);
+}
+
+CJSON_PUBLIC(char*)cJSON_PrintUnformatted(const cJSON*item){
+    return (char*)print(item,false,&global_hooks);
+}
+
+CJSON_PUBLIC(char*)cJSON_PrintBuffered(const cJSON *item,int prebuffer,cJSON_bool fmt){
+    printbuffer p={0,0,0,0,0,0,{0,0,0}};
+    if(prebuffer<0){
+        return NULL;
+    }
+    p.buffer=(unsigned char*)global_hooks.allocate((size_t)prebuffer);
+    if(!p.buffer){
+        return NULL;
+    }
+
+    p.length=(size_t)prebuffer;
+    p.offset=0;
+    p.noalloc=false;
+    p.format=fmt;
+    p.hooks=global_hooks;
+
+    if(!print_value(item,&p)){
+        global_hooks.deallcoate(p.buffer);
+        return NULL;
+    }
+
+    return (char*)p.buffer;
+}
+
+CJSON_PUBLIC(cJSON_bool)cJSON_PrintPreallocated(cJSON*item,char *buf,const int len,const cJSON_bool fmt){
+     printbuffer p={0,0,0,0,0,0,{0,0,0}};
+     if((len<0)||(buf==NULL)){
+         return false;
+     }
+
+     p.buffer=(unsigned char*)buf;
+     p.length=(size_t)len;
+     p.offset=0;
+     p.format=fmt;
+     p.hooks=global_hooks;
+
+     return print_value(item,&p);
+}
+
+//Parser core -when encountering text,process appropriately
+static cJSON_bool parse_value(cJSON*const item,parse_buffer *const input_buffer){
+    if((input_buffer==NULL)||(input_buffer->content==NULL)){
+        return false;
+    }
+
+    //parse the different types of values
+    //NULL
+    if(can_read(input_buffer,4)&&(strncmp((const char*)buffer_at_offset(input_buffer),"null",4)==0)){
+        item->type=cJSON_NULL;
+        input_buffer->offset+=4;
+        return true;
+    }
+    
 }
 
 

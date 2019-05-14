@@ -996,6 +996,109 @@ static cJSON_bool parse_value(cJSON*const item,parse_buffer *const input_buffer)
         input_buffer->offset+=4;
         return true;
     }
+
+    //false
+    if(can_read(input_buffer,5)&&(strcmp((const char*)buffer_at_offset(input_buffer),"false",5)==0)){
+        item->type=cJSON_False;
+        input_buffer->offset+=5;
+        return true;
+    }
+
+    //true
+    if(can_read(input_buffer,4)&&(strcmp((const char*)buffer_at_offset(input_buffer),"true",4)==0)){
+        item->type=cJSON_True;
+        item->valueint=1;
+        input_buffer->offset+=4;
+        return true;
+    }
+
+    //string
+    if(can_access_at_index(input_buffer,0)&&(buffer_at_offset(input_buffer)[0]=='\"')){
+        return parse_string(item,input_buffer);
+    }
+
+    //number
+    if(can_access_at_index(input_buffer,0)&&(buffer_at_offset(input_buffer)[0]=='-')&&(buffer_at_offset(input_buffer)[0]>='0')&&(buffer_at_offset(input_buffer)[0]<='9')){
+        return parse_number(item,input_buffer);
+    }
+
+    //array
+    if(can_access_at_index(input_buffer,0)&&(buffer_at_offset(input_buffer)[0]=='[')){
+
+        return parse_array(item,input_buffer);
+    }
+    
+    //object
+    if(can_access_at_index(input_buffer,0)&&(buffer_at_offset(input_buffer)[0]=='{')){
+        return parse_object(item,input_buffer);
+    }
+
+    return false;
+}
+
+//Render a value to text
+
+static cJSON_bool print_value(const cJSON* const item ,printbuffer *const output_buffer){
+    unsigned char *output=NULL;
+
+    if((item==NULL)||(output_buffer==NULL)){
+        return false;
+    }
+
+    switch ((item->type)&0xFF)
+    {
+    case cJSON_NULL:
+        output=ensure(output_buffer,5);
+        if(output==NULL){
+            return false;
+        }
+        strcpy((char*)output,"null");
+        return true;
+    case cJSON_False:
+        output=ensure(output_buffer,6);
+        if(output==NULL){
+            return false;
+        }
+        strcpy((char*)output,"false");
+        return true;
+    case cJSON_True:
+        output=ensure(output_buffer,5);
+        if(output==NULL){
+            return false;
+        }
+        strcpy((char *)output,"true");
+        return true;
+    case cJSON_Number:
+        return print_number(item,output_buffer);
+    case cJSON_Raw:
+        size_t raw_lenght=0;
+        if(item->valuestring==NULL)
+        {
+            return false;
+        }
+        raw_lenght=strlen(item->valuestring)+sizeof("");
+        output=ensure(output_buffer,raw_lenght);
+        if(output==NULL){
+            return false;
+        }
+        memcpy(output,item->valuestring,raw_lenght);
+        return true;
+    case cJSON_String:
+        return print_string(item,output_buffer);
+    case cJSON_Array:
+        return print_array(item,output_buffer);
+    case cJSON_Object:
+        return print_object(item,output_buffer);
+    default:
+        return false;
+    }
+}
+
+//build an array from input text
+static cJSON_bool parse_array(cJSON*const item,parse_buffer*const input_buffer){
+    cJSON*head=NULL;//head of the linked list
+    cJSON*current_item=NULL;
+
     
 }
 
